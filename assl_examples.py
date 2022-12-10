@@ -106,7 +106,7 @@ w0 = uc.nm2radfs(800)
 
 Ew = gaussian(w-w0, 1.0)
 
-phiw = pulse_phase_ceo(w-w0, np.array([0, 0, 0, 40]))  # define a Taylor phase
+phiw = pulse_phase_ceo(w-w0, np.array([0, 0, 0, 80]))  # define a Taylor phase
 Ew = Ew * np.exp(-1j*phiw)   # add this phase to spectrum
 
 Et_FTL = fourier_trafo.f2t(np.abs(Ew))
@@ -151,6 +151,52 @@ ax[0,1].set_xlim(-30, 30)
 
 ax[2,1].plot(t, ACF_FTL, color='k', linewidth=0.5)
 ax[2,1].plot(t, ACF)
+
+
+
+#%% time domain ptychography
+
+GEw = Ew * gaussian(w-w0, 150e-3, 2)   # define a Gate pulse by a spectral filter derived from unknown pulse Et
+GEt = fourier_trafo.f2t(GEw)
+
+
+tau = np.arange(-100, 100, 5)
+
+def make_trace(PEt=Et, GEt=GEt, tau=tau):
+    GEw = fourier_trafo.t2f(GEt)
+    GEw_tau = GEw * np.exp(-1j * np.atleast_2d(tau).T * np.atleast_2d(w))
+    GEt_tau = fourier_trafo.f2t(GEw_tau, axis=1)
+    SEt = GEt_tau * PEt
+    SIw = abs_sqd( fourier_trafo.t2f(SEt, axis=1) )
+    return SIw
+
+SIw = make_trace(PEt=Et, GEt=GEt, tau=tau)
+
+
+fig = plt.figure(num=1, figsize=(10, 10))
+fig.clear()
+plt.rcParams['font.size'] = '20'
+ax = fig.subplots(3, 2) # , sharex='col')
+ax[0,0].plot(w, abs_sqd(Ew))
+ax[0,0].plot(w, abs_sqd(GEw), color='orange')
+
+ax[1,0].plot(w, -np.unwrap(np.angle(Ew)))
+
+ax[0,1].plot(t, scaleMax1(abs_sqd(Et_FTL)), color='k')
+ax[0,1].plot(t, scaleMax1(abs_sqd(Et)))
+ax[0,1].plot(t, scaleMax1(abs_sqd(GEt)), color='orange')
+
+ax[1,1].plot(t, np.real(Et_FTL), color='k', linewidth=0.5)
+ax[1,1].plot(t, np.real(Et))
+ax[0,1].set_xlim(-30, 30)
+
+# ax.set_xlim(3, 6)
+ax[2,0].pcolorfast(w, tau, SIw)  # , cmap=cms.cividis_white)
+
+ax[0,0].set_xlim(1, 4)
+ax[1,0].set_xlim(1, 4)
+ax[2,0].set_xlim(3, 6)
+
 
 
 
