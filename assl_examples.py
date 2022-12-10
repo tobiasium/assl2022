@@ -23,6 +23,12 @@ import matplotlib        as mpl
 
 
 #%% helper functions not in above packages
+def scaleMax1(y):
+    """Scale max to 1."""
+    y1 = y / np.max(y)
+    return y1
+
+
 def abs_sqd(x):
     """Absolute squared as real of complx * complx_conj."""
     return np.real(x*np.conj(x))
@@ -100,7 +106,7 @@ w0 = uc.nm2radfs(800)
 
 Ew = gaussian(w-w0, 1.0)
 
-phiw = pulse_phase_ceo(w-w0, np.array([0, 0, 20]))  # define a Taylor phase
+phiw = pulse_phase_ceo(w-w0, np.array([0, 0, 0, 40]))  # define a Taylor phase
 Ew = Ew * np.exp(-1j*phiw)   # add this phase to spectrum
 
 Et_FTL = fourier_trafo.f2t(np.abs(Ew))
@@ -125,7 +131,63 @@ ax[0,1].set_xlim(-30, 30)
 
 
 #%% calculate autocorrelation
+ACF_FTL = np.abs(fourier_trafo.f2t( fourier_trafo.t2f(abs_sqd(Et_FTL)) * np.conj(fourier_trafo.t2f(abs_sqd(Et_FTL)) )))
+ACF = np.abs(fourier_trafo.f2t( fourier_trafo.t2f(abs_sqd(Et)) * np.conj(fourier_trafo.t2f(abs_sqd(Et)) )))
 
 
+fig = plt.figure(num=1, figsize=(10, 10))
+fig.clear()
+plt.rcParams['font.size'] = '20'
+ax = fig.subplots(3, 2, sharex='col')
+ax[0,0].plot(w, abs_sqd(Ew))
+ax[1,0].plot(w, -np.unwrap(np.angle(Ew)))
+ax[0,0].set_xlim(1, 4)
+
+ax[0,1].plot(t, abs_sqd(Et_FTL), color='k')
+ax[0,1].plot(t, abs_sqd(Et))
+ax[1,1].plot(t, np.real(Et_FTL), color='k', linewidth=0.5)
+ax[1,1].plot(t, np.real(Et))
+ax[0,1].set_xlim(-30, 30)
+
+ax[2,1].plot(t, ACF_FTL, color='k', linewidth=0.5)
+ax[2,1].plot(t, ACF)
+
+
+
+#%% spectral interferometry
+# allows to measure a phase difference just by a spectral fringe measurement
+
+tau = 100
+phidiff = pulse_phase_ceo(w-w0, np.array([0, 0, 30]))
+                          
+Ew2 = Ew + Ew * np.exp(-1j*phidiff) * np.exp(-1j*pulse_phase_ceo(w-w0, np.array([0, tau])))
+SI = abs_sqd(Ew2)   # the spectrometer measures the modulus squared
+
+SI_ft = fourier_trafo.f2t(SI)
+
+acfilter = gaussian(t-tau, 100, 8)
+
+SI_ft_acfilt = fourier_trafo.t2f(SI_ft * acfilter)
+
+phisi = -np.unwrap(np.angle(SI_ft_acfilt))
+phifit = np.polyfit(w, phisi, 1, w=abs_sqd(SI))
+phisi = phisi - np.polyval(phifit, w)
+
+fig = plt.figure(num=1, figsize=(10, 10))
+fig.clear()
+plt.rcParams['font.size'] = '20'
+ax = fig.subplots(2, 2, sharex='col')
+ax[0,0].plot(w, SI)
+ax[0,0].set_xlim(1, 4)
+
+ax[0,1].plot(t, scaleMax1(abs_sqd(SI_ft)))
+ax[0,1].plot(t, acfilter)
+ax[0,1].set_xlim(-200, 200)
+
+ax[0,0].plot(w, 4*np.abs(SI_ft_acfilt), color='r')
+
+ax[1,0].plot(w, phidiff, color='b')
+ax[1,0].plot(w, phisi, color='r')
+ax[1,0].set_ylim(-10, 50)
 
 
