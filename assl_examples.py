@@ -16,6 +16,7 @@ import math
 import numpy as np
 import unitconversion as uc
 import fourier_trafo
+from scipy.integrate import cumtrapz
 
 import matplotlib.pyplot as plt
 import matplotlib        as mpl
@@ -27,6 +28,19 @@ def scaleMax1(y):
     """Scale max to 1."""
     y1 = y / np.max(y)
     return y1
+
+
+def find_index(X, x, axis=None):
+    """Return indices or values in array."""
+    x = np.array(x)
+    if np.size(x) > 1:
+        ix = np.zeros(x.shape, dtype=int)
+        for n in range(np.size(x)):
+            ix[n] = int(np.abs(X-x[n]).argmin(axis))
+    else:
+        ix = int(np.abs(X-x).argmin(axis))
+
+    return ix
 
 
 def abs_sqd(x):
@@ -235,5 +249,122 @@ ax[0,0].plot(w, 4*np.abs(SI_ft_acfilt), color='r')
 ax[1,0].plot(w, phidiff, color='b')
 ax[1,0].plot(w, phisi, color='r')
 ax[1,0].set_ylim(-10, 50)
+
+
+
+
+#%% SPIDER
+Dt = 5000
+dt = 0.5
+
+t = np.arange(-Dt, Dt, dt)  # create a time grid  units: fs
+w = fourier_trafo.conj_axis(t)  # w short for omega units: rad/fs
+lnm = uc.radfs2nm(w)  # lambda in nm for plotting
+
+w0 = uc.nm2radfs(800)
+upconversion = w0
+
+Ew = gaussian(w-w0, 1.0)
+phiw = pulse_phase_ceo(w-w0, np.array([0, 0, 50]))  # define a Taylor phase
+Ew = Ew * np.exp(-1j*phiw)   # add this phase to spectrum
+
+Et_FTL = fourier_trafo.f2t(np.abs(Ew))
+Et = fourier_trafo.f2t(Ew)
+
+
+
+
+
+tau = 100  # test pulse replica
+ancilla_phi2 = 5000  # chirp of ancilla pulse
+shear = tau / ancilla_phi2
+
+stretcher_phi = pulse_phase_ceo(w - w0, np.array([0, 0, ancilla_phi2 ]) )
+ancilla_Ew = Ew * np.exp(- 1j * stretcher_phi)
+ancilla_Et = fourier_trafo.f2t(ancilla_Ew)
+
+
+Ew1 = Ew * np.exp(-1j * pulse_phase_ceo(w - w0, np.array([0, -tau/2 ]) ) )
+Ew2 = Ew * np.exp(-1j * pulse_phase_ceo(w - w0, np.array([0, tau/2 ]) ) )
+TP_doublepulse_Ew = Ew1 + Ew2
+TP_doublepulse_Et = fourier_trafo.f2t(TP_doublepulse_Ew)
+
+
+SFcal_Et = TP_doublepulse_Et * TP_doublepulse_Et
+SFcal_Ew = fourier_trafo.t2f(SFcal_Et)
+SPIDER_cal = abs_sqd(SFcal_Ew)  # this is the measured SPIDER calibration interferogram
+
+
+SF_Et = TP_doublepulse_Et * ancilla_Et
+SF_Ew = fourier_trafo.t2f(SF_Et)
+SPIDER_blu = abs_sqd(SF_Ew)  # this is the measured SPIDER interferogram
+
+SPIDER_cal_ft = fourier_trafo.f2t(SPIDER_cal)
+SPIDER_blu_ft = fourier_trafo.f2t(SPIDER_blu)
+
+
+acfilter = gaussian(t-100, 75, 8)
+
+SPIDER_cal_ft_acfiltered = fourier_trafo.t2f( SPIDER_cal_ft * acfilter )
+SPIDER_blu_ft_acfiltered = fourier_trafo.t2f( SPIDER_blu_ft * acfilter )
+
+# gamma = -np.angle(SPIDER_blu_ft_acfiltered * np.conj(SPIDER_cal_ft_acfiltered))
+
+theta_cal = -np.unwrap(np.angle(SPIDER_cal_ft_acfiltered))
+theta_blu = -np.unwrap(np.angle(SPIDER_blu_ft_acfiltered))
+gamma = theta_blu - theta_cal
+gammar = np.interp(w, w-upconversion, gamma)
+gammar -= gammar[find_index(w, w0)]
+phi_rec = -cumtrapz(gammar / shear, dx=w[1] - w[0], initial=0)
+
+phi_orig = -np.unwrap(np.angle(Ew))
+
+phi_orig -= phi_orig[find_index(w, w0)]
+phi_rec -= phi_rec[find_index(w, w0)]
+
+
+Ew_rec = np.abs(Ew) * np.exp(-1j*phi_rec)
+Et_rec = fourier_trafo.f2t(Ew_rec)
+
+
+fig = plt.figure(num=1, figsize=(10, 10))
+fig.clear()
+plt.rcParams['font.size'] = '20'
+ax = fig.subplots(3, 2) # , sharex='col')
+ax[0,0].plot(w, abs_sqd(Ew))
+ax[1,0].plot(w, phi_orig, label=r'$\phi_{orig}$')
+ax[1,0].plot(w, phi_rec, color='g', linestyle='--', label=r'$\phi_{recon}$')
+ax[1,0].legend()
+
+ax[0,1].plot(t, scaleMax1(abs_sqd(Et_FTL)), color='k')
+ax[0,1].plot(t, scaleMax1(abs_sqd(Et)))
+ax[0,1].plot(t, scaleMax1(abs_sqd(Et_rec)), color='g', linestyle='--')
+ax[0,1].plot(t, scaleMax1(abs_sqd(ancilla_Et)), color='orange')
+
+ax[1,1].plot(w, scaleMax1(SPIDER_cal), color='r')
+ax[1,1].plot(w, scaleMax1(np.abs(SPIDER_cal_ft_acfiltered)), color='r')
+ax[1,1].plot(w, scaleMax1(SPIDER_blu), color='b')
+ax[1,1].plot(w, scaleMax1(np.abs(SPIDER_blu_ft_acfiltered)), color='b')
+
+
+ax[2,1].plot(t, scaleMax1(acfilter), color='k')
+ax[2,1].plot(t, scaleMax1(np.abs(SPIDER_cal_ft)), color='r')
+ax[2,1].plot(t, scaleMax1(np.abs(SPIDER_blu_ft)), color='b')
+
+ax[2,0].plot(w, theta_cal, color='r', label=r'$\theta_r$')
+ax[2,0].plot(w, theta_blu, color='b', label=r'$\theta_b$')
+ax[2,0].plot(w, gamma, color='k', label=r'$\Gamma$')
+ax[2,0].legend()
+
+
+ax[0,0].set_xlim(1, 4)
+ax[1,0].set_xlim(1, 4)
+ax[1,0].set_ylim(-10, 20)
+ax[1,1].set_xlim(3, 7)
+ax[2,1].set_xlim(-200, 200)
+ax[2,0].set_xlim(3, 7)
+
+
+ax[0,1].set_xlim(-100, 100)
 
 
